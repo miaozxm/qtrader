@@ -20,6 +20,7 @@ from data.fetcher import fetcher
 from data.storage import storage
 from data.symbols import to_secid
 from indicators.ta import add_indicators
+from optimizer.optimizer import PARAM_GRIDS, STRATEGY_FACTORY, optimize
 from portfolio.portfolio import portfolio_equity, portfolio_returns
 from portfolio.watchlist import watchlist
 from screener.screener import CONDITIONS, Screener
@@ -270,8 +271,8 @@ def make_equity_chart(equity_df: pd.DataFrame) -> go.Figure:
 # ----------------------------------------------------------------------
 # 主流程
 # ----------------------------------------------------------------------
-tab_analyze, tab_screener, tab_portfolio = st.tabs([
-    "📊 行情分析", "🎯 选股器", "💼 组合监控",
+tab_analyze, tab_screener, tab_portfolio, tab_lab = st.tabs([
+    "📊 行情分析", "🎯 选股器", "💼 组合监控", "🧪 策略实验室",
 ])
 
 # ================= 行情分析页签 =================
@@ -581,6 +582,71 @@ with tab_portfolio:
                 m1.metric("组合总收益", f"{total_ret:.2f}%")
                 m2.metric("最大回撤", f"{max_dd:.2f}%")
                 m3.metric("期末净值", f"{eq['equity'].iloc[-1]:,.0f}")
+
+# ================= 策略实验室页签 =================
+with tab_lab:
+    st.subheader("🧪 策略参数寻优（Grid Search）")
+    st.caption("对内置策略做参数网格搜索，找出历史表现最优的参数组合")
+
+    l1, l2, l3, l4 = st.columns([1, 1, 1, 1])
+    with l1:
+        lab_code = st.text_input("股票代码", "600519", key="lab_code")
+    with l2:
+        lab_strat = st.selectbox("策略", list(PARAM_GRIDS.keys()), key="lab_strat")
+    with l3:
+        lab_metric = st.selectbox(
+            "寻优指标",
+            ["年化收益", "总收益率", "夏普比率", "最大回撤"],
+            key="lab_metric",
+        )
+    with l4:
+        lab_topn = st.selectbox("Top N", [5, 10, 20], index=1, key="lab_topn")
+
+    lab_note = " / ".join(
+        f"{k}={v}" for k, v in PARAM_GRIDS.get(lab_strat, {}).items()
+    )
+    st.caption(f"参数网格：{lab_note}")
+
+    if st.button("🚀 开始寻优", type="primary", key="lab_run"):
+        try:
+            progress_bar = st.progress(0, text="寻优中...")
+
+            def _on_progress(done, total):
+                progress_bar.progress(done / total,
+                                      text=f"寻优中 {done}/{total} ...")
+
+            with st.spinner("正在遍历参数组合..."):
+                best = optimize(
+                    code=lab_code.strip(),
+                    strategy_name=lab_strat,
+                    metric=lab_metric,
+                    top_n=lab_topn,
+                    progress=_on_progress,
+                )
+
+            if best.empty:
+                st.warning("寻优无结果，请检查代码或参数范围")
+            else:
+                st.success("寻优完成")
+                show = best.copy()
+                show["总收益率%"] = (show["总收益率"] * 100).round(2)
+                show["年化收益%"] = (show["年化收益"] * 100).round(2)
+                show["最大回撤%"] = (show["最大回撤"] * 100).round(2)
+                show["夏普"] = show["夏普比率"].round(2)
+                show["胜率%"] = (show["胜率"] * 100).round(1)
+                drop_cols = ["总收益率", "年化收益", "最大回撤",
+                             "夏普比率", "胜率", "期末资产"]
+                show = show.drop(columns=drop_cols, errors="ignore")
+                st.dataframe(show, width="stretch", height=360)
+
+                csv = best.to_csv(index=False).encode("utf-8-sig")
+                st.download_button(
+                    "⬇️ 下载寻优结果 CSV", csv,
+                    file_name=f"qtrader_opt_{lab_strat}_{lab_code}.csv",
+                    mime="text/csv",
+                )
+        except Exception as e:
+            st.error(f"寻优失败：{e}")
 
 # 底部：市场热榜
 # ----------------------------------------------------------------------
