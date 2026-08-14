@@ -478,7 +478,36 @@ with tab_home:
 
 # ================= 行情分析页签 =================
 with tab_analyze:
+    # 页签内搜索框（代码/名称）
+    q1, q2 = st.columns([3, 1])
+    with q1:
+        search_input = st.text_input(
+            "🔎 搜索股票 / ETF（代码或名称）", "",
+            key="search_input",
+            placeholder="例如：600519 / 茅台 / 159915 / 腾讯",
+        )
+    with q2:
+        st.write("")
+        st.write("")
+        search_go = st.button("搜索", key="search_go", width="stretch")
+
     code = st.session_state.get("code") or code
+
+    if (search_go and search_input.strip()) or (
+        search_input.strip().isdigit() and search_input.strip() != code
+    ):
+        kw = search_input.strip()
+        results = fetcher.search(kw, limit=8)
+        if results:
+            labels = [f"{r['code']} {r['name']} ({r['market']})" for r in results]
+            pick = st.selectbox("选择结果：", labels, key="search_pick")
+            picked = results[labels.index(pick)]
+            code = picked["code"]
+            st.session_state["code"] = code
+        else:
+            st.warning(f"未找到与「{kw}」匹配的标的")
+
+    st.divider()
 
     if code:
         try:
@@ -563,6 +592,36 @@ with tab_analyze:
         except Exception as e:
             st.error(f"数据获取失败：{e}")
             st.exception(e)
+
+    # 页签内热榜（点击代码可直达行情）
+    st.divider()
+    st.caption(f"🔥 {market} 热榜 · 点击行可查看该标的")
+    with st.spinner("加载榜单..."):
+        try:
+            rank_df = fetcher.get_stock_list(market, limit=rank_n,
+                                             sort_field=rank_field)
+            if not rank_df.empty:
+                rank_view = rank_df.rename(columns={
+                    "code": "代码", "name": "名称", "price": "现价",
+                    "pct_chg": "涨跌幅%", "chg": "涨跌额",
+                    "volume": "成交量(手)", "amount": "成交额(元)",
+                    "turnover": "换手%", "pe": "市盈率",
+                    "volume_ratio": "量比", "high": "最高", "low": "最低",
+                    "open": "开盘", "prev_close": "昨收",
+                })
+                sel = st.dataframe(
+                    rank_view, width="stretch", height=360,
+                    key="rank_table",
+                    on_select="rerun",
+                    selection_mode="single-row",
+                    hide_index=True,
+                )
+                if sel.selection and sel.selection.rows:
+                    picked_code = rank_df.iloc[sel.selection.rows[0]]["code"]
+                    st.session_state["code"] = str(picked_code)
+                    st.rerun()
+        except Exception as e:
+            st.warning(f"榜单加载失败：{e}")
 
 # ================= 选股器页签 =================
 with tab_screener:
@@ -957,28 +1016,5 @@ with tab_paper:
         paper_account.reset()
         st.success("账户已重置")
         st.rerun()
-
-# 底部：市场热榜
-# ----------------------------------------------------------------------
-st.divider()
-st.subheader(f"🔥 {market} 热榜")
-with st.spinner("加载榜单..."):
-    try:
-        rank_df = fetcher.get_stock_list(market, limit=rank_n, sort_field=rank_field)
-        if not rank_df.empty:
-            st.dataframe(
-                rank_df.rename(columns={
-                    "code": "代码", "name": "名称", "price": "现价",
-                    "pct_chg": "涨跌幅%", "chg": "涨跌额",
-                    "volume": "成交量(手)", "amount": "成交额",
-                    "turnover": "换手%", "pe": "市盈率",
-                    "volume_ratio": "量比", "high": "最高", "low": "最低",
-                    "open": "开盘", "prev_close": "昨收",
-                    "total_mv": "总市值", "float_mv": "流通市值",
-                }),
-                width="stretch", height=380,
-            )
-    except Exception as e:
-        st.warning(f"榜单加载失败：{e}")
 
 st.caption("⚠️ 数据来自东方财富免费接口，仅供学习研究，不构成投资建议。")

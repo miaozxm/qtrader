@@ -1,6 +1,7 @@
 """行情数据获取：东方财富（主） + 腾讯（备用），自动降级"""
-import time
+import json
 import re
+import time
 
 import pandas as pd
 import requests
@@ -52,6 +53,7 @@ class EastMoneyFetcher(_BaseFetcher):
     KLINE_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
     REALTIME_URL = "https://push2.eastmoney.com/api/qt/stock/get"
     LIST_URL = "https://push2.eastmoney.com/api/qt/clist/get"
+    SEARCH_URL = "https://searchapi.eastmoney.com/api/suggest/get"
     HEADERS = {
         **_BaseFetcher.HEADERS,
         "Referer": "https://quote.eastmoney.com/",
@@ -62,6 +64,10 @@ class EastMoneyFetcher(_BaseFetcher):
         "day": 101, "week": 102, "month": 103,
     }
     FQT_MAP = {"qfq": 1, "hfq": 2, "none": 0}
+
+    def __init__(self):
+        super().__init__()
+        self._universe_cache = None
 
     def get_kline(self, secid: str, period: str = "day", fqt: str = "qfq",
                   beg: str = "0", end: str = "20500101") -> pd.DataFrame:
@@ -118,27 +124,80 @@ class EastMoneyFetcher(_BaseFetcher):
             "A股": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",
             "港股": "m:128+t:3,m:128+t:4,m:128+t:1,m:128+t:2",
         }
-        params = {
-            "pn": 1, "pz": min(limit, 200), "po": 1 if sort_desc else 0,
-            "np": 1, "fltt": 2, "invt": 2, "fid": sort_field,
-            "fs": fs_map.get(market, fs_map["A股"]),
-            "fields": "f2,f3,f4,f5,f6,f8,f9,f10,f12,f14,f15,f16,f17,f18,f20,f21",
-        }
-        data = self._get(self.LIST_URL, params).json().get("data") or {}
-        diff = data.get("diff") or []
-        if not diff:
+        # 东财 clist 接口单页上限约 100 条，大数量需分页
+        page_size = 100
+        pages = max(1, (limit + page_size - 1) // page_size)
+        frames = []
+        for pn in range(1, pages + 1):
+            params = {
+                "pn": pn, "pz": page_size, "po": 1 if sort_desc else 0,
+                "np": 1, "fltt": 2, "invt": 2, "fid": sort_field,
+                "fs": fs_map.get(market, fs_map["A股"]),
+                "fields": "f2,f3,f4,f5,f6,f8,f9,f10,f12,f14,f15,f16,f17,f18,f20,f21",
+            }
+            try:
+                data = self._get(self.LIST_URL, params).json().get("data") or {}
+                diff = data.get("diff") or []
+            except Exception:
+                diff = []
+            if not diff:
+                break
+            rows = [{
+                "code": d.get("f12"), "name": d.get("f14"), "price": d.get("f2"),
+                "pct_chg": d.get("f3"), "chg": d.get("f4"),
+                "volume": d.get("f5"), "amount": d.get("f6"),
+                "turnover": d.get("f8"), "pe": d.get("f9"),
+                "volume_ratio": d.get("f10"), "high": d.get("f15"),
+                "low": d.get("f16"), "open": d.get("f17"),
+                "prev_close": d.get("f18"),
+                "total_mv": d.get("f20"), "float_mv": d.get("f21"),
+            } for d in diff]
+            frames.append(pd.DataFrame(rows))
+            if len(diff) < page_size:
+                break
+        if not frames:
             return pd.DataFrame()
-        rows = [{
-            "code": d.get("f12"), "name": d.get("f14"), "price": d.get("f2"),
-            "pct_chg": d.get("f3"), "chg": d.get("f4"),
-            "volume": d.get("f5"), "amount": d.get("f6"),
-            "turnover": d.get("f8"), "pe": d.get("f9"),
-            "volume_ratio": d.get("f10"), "high": d.get("f15"),
-            "low": d.get("f16"), "open": d.get("f17"),
-            "prev_close": d.get("f18"),
-            "total_mv": d.get("f20"), "float_mv": d.get("f21"),
-        } for d in diff]
-        return pd.DataFrame(rows)
+        return pd.concat(frames, ignore_index=True).head(limit).reset_index(drop=True)
+
+    def search(self, keyword: str, limit: int = 10) -> list[dict]:
+        """快速模糊搜索：代码精确 + 活跃股（成交额前500）名称匹配
+
+        全市场扫描太重，这里用成交额活跃股做名称匹配，保证秒回。
+        纯数字入参直接当作代码返回。
+        """
+        kw = str(keyword).strip().lower()
+        if not kw:
+            return []
+
+        # 纯数字当作代码（支持股票/ETF）
+        if kw.isdigit():
+            return [{"code": kw, "name": kw, "market": ""}]
+
+        # 名称匹配：从成交额活跃股里搜（A股+港股，各自缓存）
+        if self._universe_cache is None:
+            frames = []
+            for mkt in ("A股", "港股"):
+                try:
+                    df = self.get_stock_list(mkt, limit=500, sort_field="f6")
+                    if not df.empty:
+                        frames.append(df)
+                except Exception:
+                    continue
+            self._universe_cache = pd.concat(frames, ignore_index=True) if frames \
+                else pd.DataFrame()
+
+        univ = self._universe_cache
+        if univ is not None and not univ.empty:
+            mask = univ["name"].astype(str).str.lower().str.contains(kw)
+            hits = univ[mask].head(limit)
+            return [
+                {
+                    "code": r.code, "name": r.name,
+                    "market": "港股" if len(str(r.code)) <= 5 else "A股",
+                }
+                for r in hits.itertuples()
+            ]
+        return []
 
 
 class TencentFetcher(_BaseFetcher):
@@ -298,6 +357,13 @@ class DataFetcher:
             return self.em.get_stock_list(market, limit, sort_field, sort_desc)
         except Exception:
             return pd.DataFrame()
+
+    def search(self, keyword: str, limit: int = 10) -> list[dict]:
+        """模糊搜索：代码 / 名称 / 拼音"""
+        try:
+            return self.em.search(keyword, limit)
+        except Exception:
+            return []
 
 
 # 模块级单例
