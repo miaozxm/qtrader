@@ -54,31 +54,31 @@ st.markdown("""
         background: #ffffff;
         border-right: 1px solid var(--line);
     }
-    [data-testid="stSidebar"] [data-testid="stSidebarContent"] { padding-top: 1.2rem; }
-    .block-container { padding-top: 1.6rem; padding-bottom: 3rem; }
+    [data-testid="stSidebar"] [data-testid="stSidebarContent"] { padding-top: 1.6rem; }
+    .block-container { padding-top: 2.4rem; padding-bottom: 4rem; }
 
     /* 品牌栏 */
     .qtrader-brand {
-        display: flex; align-items: center; gap: 12px;
-        margin-bottom: 4px;
+        display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+        margin-bottom: 6px;
     }
     .qtrader-brand .logo {
-        font-size: 1.6rem; line-height: 1;
+        font-size: 1.7rem; line-height: 1;
     }
     .qtrader-brand .name {
-        font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em;
+        font-size: 1.65rem; font-weight: 700; letter-spacing: -0.02em;
         color: var(--ink);
     }
     .qtrader-brand .name em {
         font-style: normal; color: var(--brand);
     }
     .qtrader-sub {
-        color: var(--muted); font-size: 0.85rem;
-        margin-bottom: 0.8rem;
+        color: var(--muted); font-size: 0.9rem; line-height: 1.5;
+        margin-bottom: 1rem;
     }
     .qtrader-status {
         display: inline-flex; align-items: center; gap: 6px;
-        background: #ecfdf5; color: #059669; font-size: 0.75rem;
+        background: #ecfdf5; color: #059669; font-size: 0.8rem;
         padding: 2px 10px; border-radius: 999px; margin-left: 8px;
     }
     .qtrader-status::before {
@@ -91,8 +91,8 @@ st.markdown("""
         background: var(--card);
         border: 1px solid var(--line);
         border-radius: 14px;
-        padding: 1.1rem 1.2rem;
-        margin-bottom: 0.8rem;
+        padding: 1.3rem 1.4rem;
+        margin-bottom: 1rem;
         box-shadow: 0 1px 2px rgba(15,23,42,0.04);
         transition: box-shadow .15s ease, transform .15s ease;
     }
@@ -100,13 +100,13 @@ st.markdown("""
         box-shadow: 0 8px 24px rgba(15,23,42,0.08);
         transform: translateY(-1px);
     }
-    .qtrader-card .card-ico { font-size: 1.5rem; }
+    .qtrader-card .card-ico { font-size: 1.6rem; }
     .qtrader-card .card-title {
-        font-size: 1.02rem; font-weight: 650; color: var(--ink);
-        margin: 6px 0 4px;
+        font-size: 1.08rem; font-weight: 650; color: var(--ink);
+        margin: 8px 0 6px;
     }
     .qtrader-card .card-desc {
-        color: var(--muted); font-size: 0.82rem; line-height: 1.5;
+        color: var(--muted); font-size: 0.88rem; line-height: 1.6;
     }
 
     /* 按钮 */
@@ -126,34 +126,20 @@ st.markdown("""
         box-shadow: 0 4px 14px rgba(37,99,235,0.35);
     }
 
-    /* 指标卡与标题收敛 */
-    [data-testid="stMetric"] {
-        background: var(--card);
-        border: 1px solid var(--line);
-        border-radius: 12px;
-        padding: 0.8rem 1rem;
-    }
     h1, h2, h3 { letter-spacing: -0.02em; color: var(--ink); }
-    h3 { font-size: 1.05rem; font-weight: 650; }
+    h3 { font-size: 1.12rem; font-weight: 650; }
 
     /* tabs 收敛 */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 6px; border-bottom: 1px solid var(--line);
-        margin-bottom: 1.1rem;
+        gap: 8px; border-bottom: 1px solid var(--line);
+        margin-bottom: 1.4rem;
     }
     .stTabs [data-baseweb="tab"] {
         border-radius: 9px 9px 0 0;
-        padding: 6px 14px;
-        font-size: 0.92rem;
+        padding: 8px 18px;
+        font-size: 0.98rem;
+        white-space: nowrap;
     }
-    .stTabs [aria-selected="true"] {
-        background: var(--brand) !important;
-        color: #fff !important;
-    }
-    .stTabs [aria-selected="true"] [data-testid="stMarkdownContainer"] p {
-        color: #fff !important;
-    }
-    .stTabs [data-baseweb="tab"]:hover { background: #eff6ff; }
 
     .stExpander {
         border: 1px solid var(--line) !important;
@@ -161,7 +147,6 @@ st.markdown("""
         background: var(--card);
     }
     hr { border-color: var(--line) !important; }
-    [data-testid="stDataFrame"] { border-radius: 12px; overflow: hidden; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -170,7 +155,6 @@ st.markdown(
     '<div class="qtrader-brand">'
     '<span class="logo">📈</span>'
     '<span class="name">QTrader<em>·量化</em></span>'
-    '<span class="qtrader-status">数据在线</span>'
     '</div>'
     '<div class="qtrader-sub">A股 / 港股 · 东方财富 + 腾讯数据源 · 本地缓存 · 个人量化研究平台</div>',
     unsafe_allow_html=True,
@@ -420,18 +404,13 @@ tab_home, tab_analyze, tab_screener, tab_portfolio, tab_lab, tab_paper = st.tabs
 
 # ================= 主页页签 =================
 with tab_home:
-    # Hero
+    st.markdown("### 构建你自己的量化交易平台")
     st.markdown(
-        '<div style="padding:1.6rem 0 0.4rem;">'
-        '<h2 style="font-size:2rem;font-weight:750;letter-spacing:-0.03em;'
-        'color:var(--ink);margin-bottom:0.4rem;">构建你自己的量化交易平台</h2>'
-        '<p style="color:var(--muted);font-size:1.02rem;max-width:640px;line-height:1.6;">'
-        '覆盖 A股 / 港股行情、技术指标、策略回测与参数寻优、模拟交易，'
-        '全部数据来自免费公开接口，开箱即用。</p>'
-        '</div>',
-        unsafe_allow_html=True,
+        "覆盖 A股 / 港股行情、技术指标、策略回测与参数寻优、模拟交易，"
+        "全部数据来自免费公开接口，开箱即用。"
     )
 
+    # 功能卡片
     # 功能卡片
     colA, colB, colC = st.columns(3)
     with colA:

@@ -7,14 +7,15 @@ from config import MARKETS
 def detect_market(code: str) -> str:
     """根据代码判断市场（A股 / 港股）
 
-    - 6 开头：沪市主板/科创板
-    - 0、3 开头：深市主板/创业板
-    - 5 开头：沪市基金/ETF
-    - 4、8 开头：北交所/新三板（暂归 A股）
-    - 其它 4-5 位纯数字：港股
+    6 位数字一律视为 A股（沪/深主板、创业板、科创板、ETF/LOF、北交所）：
+    - 6/5 开头：沪市（主板 / 科创板 / 沪市基金 ETF）
+    - 0/3 开头：深市（主板 / 创业板）
+    - 1/2 开头：深市基金 / ETF / B股
+    - 4/8 开头：北交所
+    4-5 位纯数字：港股
     """
     code = code.strip().upper()
-    if code.startswith(("6", "0", "3", "5", "4", "8")) and len(code) == 6:
+    if code.isdigit() and len(code) == 6:
         return "A股"
     if re.fullmatch(r"\d{4,5}", code):
         return "港股"
@@ -32,6 +33,7 @@ def to_secid(code: str) -> str:
     if market == "港股":
         return f"116.{code}"
     # A股：沪市 1，深市 0
+    # 沪市：6/5 开头（主板/科创板/沪基金）；深市：0/1/2/3 开头（含深基金ETF/B股）
     prefix = "1" if code.startswith(("6", "5")) else "0"
     return f"{prefix}.{code}"
 
