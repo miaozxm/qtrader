@@ -21,6 +21,7 @@ from data.storage import storage
 from data.symbols import to_secid
 from indicators.ta import add_indicators
 from optimizer.optimizer import PARAM_GRIDS, STRATEGY_FACTORY, optimize
+from paper.account import paper_account
 from portfolio.portfolio import portfolio_equity, portfolio_returns
 from portfolio.watchlist import watchlist
 from screener.screener import CONDITIONS, Screener
@@ -271,8 +272,8 @@ def make_equity_chart(equity_df: pd.DataFrame) -> go.Figure:
 # ----------------------------------------------------------------------
 # 主流程
 # ----------------------------------------------------------------------
-tab_analyze, tab_screener, tab_portfolio, tab_lab = st.tabs([
-    "📊 行情分析", "🎯 选股器", "💼 组合监控", "🧪 策略实验室",
+tab_analyze, tab_screener, tab_portfolio, tab_lab, tab_paper = st.tabs([
+    "📊 行情分析", "🎯 选股器", "💼 组合监控", "🧪 策略实验室", "🖥 模拟交易",
 ])
 
 # ================= 行情分析页签 =================
@@ -647,6 +648,119 @@ with tab_lab:
                 )
         except Exception as e:
             st.error(f"寻优失败：{e}")
+
+# ================= 模拟交易页签 =================
+with tab_paper:
+    st.subheader("🖥 模拟交易账户")
+    st.caption("纸面交易：用虚拟资金练习策略，不涉及真实资金")
+
+    cash = paper_account.get_cash()
+    positions = paper_account.get_positions()
+
+    # 账户总览
+    c1, c2, c3 = st.columns(3)
+    c1.metric("可用资金", f"{cash:,.0f}")
+    c2.metric("持仓数", f"{len(positions)}")
+
+    # 持仓市值
+    market_val = 0.0
+    for pos in positions:
+        try:
+            rt = fetcher.get_realtime_by_code(pos["code"])
+            price = rt.get("price")
+            if price:
+                market_val += price * pos["qty"]
+        except Exception:
+            pass
+    c3.metric("持仓市值", f"{market_val:,.0f}")
+    st.caption(f"总资产 ≈ {cash + market_val:,.0f}（现金 + 持仓市值）")
+
+    st.divider()
+
+    # 下单面板
+    st.subheader("下单")
+    o1, o2, o3, o4, o5 = st.columns([1, 1, 1, 1, 1])
+    with o1:
+        trade_code = st.text_input("代码", "600519", key="trade_code")
+    with o2:
+        trade_side = st.selectbox("方向", ["买入", "卖出"], key="trade_side")
+    with o3:
+        trade_qty = st.number_input("数量", value=100.0, min_value=100.0,
+                                    step=100.0, key="trade_qty")
+    with o4:
+        trade_price = st.number_input("价格", value=0.0, min_value=0.0,
+                                      step=0.01, key="trade_price",
+                                      help="留 0 则用实时价")
+    with o5:
+        st.write("")
+        st.write("")
+        trade_go = st.button("⚡ 下单", type="primary", width="stretch",
+                             key="trade_go")
+
+    if trade_go and trade_code.strip():
+        code_t = trade_code.strip().upper().replace(".", "")
+        price_t = trade_price if trade_price > 0 else None
+        try:
+            rt = fetcher.get_realtime_by_code(code_t)
+            name_t = rt.get("name", "") if rt else ""
+            if price_t is None:
+                price_t = rt.get("price") if rt else None
+            if not price_t:
+                st.error("无法获取价格，请手动输入")
+            else:
+                if trade_side == "买入":
+                    msg = paper_account.buy(code_t, name_t, trade_qty, float(price_t))
+                else:
+                    msg = paper_account.sell(code_t, float(price_t), trade_qty)
+                st.success(msg)
+                st.rerun()
+        except Exception as e:
+            st.error(f"下单失败：{e}")
+
+    st.divider()
+
+    # 持仓明细
+    st.subheader("持仓明细")
+    if not positions:
+        st.info("暂无持仓")
+    else:
+        pos_rows = []
+        for pos in positions:
+            try:
+                rt = fetcher.get_realtime_by_code(pos["code"])
+                price = rt.get("price") or pos["avg_cost"]
+                value = price * pos["qty"]
+                pnl = (price - pos["avg_cost"]) * pos["qty"]
+                pnl_pct = (price / pos["avg_cost"] - 1) * 100 if pos["avg_cost"] else 0
+                pos_rows.append({
+                    "代码": pos["code"], "名称": pos.get("name") or "",
+                    "数量": pos["qty"], "成本": round(pos["avg_cost"], 3),
+                    "现价": round(float(price), 3),
+                    "市值": round(value, 0),
+                    "浮动盈亏": round(pnl, 0),
+                    "盈亏%": round(float(pnl_pct), 2),
+                })
+            except Exception:
+                pos_rows.append({
+                    "代码": pos["code"], "名称": pos.get("name") or "",
+                    "数量": pos["qty"], "成本": round(pos["avg_cost"], 3),
+                    "现价": None, "市值": None, "浮动盈亏": None, "盈亏%": None,
+                })
+        st.dataframe(pd.DataFrame(pos_rows), width="stretch", height=240)
+
+    st.divider()
+
+    # 成交记录
+    trades = paper_account.get_trades(limit=50)
+    if trades:
+        st.subheader("最近成交")
+        st.dataframe(pd.DataFrame(trades), width="stretch", height=260)
+
+    # 重置
+    if st.button("🔄 重置账户", key="paper_reset"):
+        paper_account.reset()
+        st.success("账户已重置")
+        st.rerun()
 
 # 底部：市场热榜
 # ----------------------------------------------------------------------
