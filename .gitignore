@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# 本地缓存数据
+cache/
+
+# 日志与临时文件
+*.log
+*.tmp
+*.bak
+smoke_result.txt
+diag_result.txt
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 操作系统
+Thumbs.db
+.DS_Store
+
+# 示例图片（可按需保留）
+# example_kline.png
