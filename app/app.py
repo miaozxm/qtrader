@@ -20,6 +20,8 @@ from data.fetcher import fetcher
 from data.storage import storage
 from data.symbols import to_secid
 from indicators.ta import add_indicators
+from portfolio.portfolio import portfolio_equity, portfolio_returns
+from portfolio.watchlist import watchlist
 from screener.screener import CONDITIONS, Screener
 from strategies.base import STRATEGY_REGISTRY
 
@@ -268,7 +270,9 @@ def make_equity_chart(equity_df: pd.DataFrame) -> go.Figure:
 # ----------------------------------------------------------------------
 # 主流程
 # ----------------------------------------------------------------------
-tab_analyze, tab_screener = st.tabs(["📊 行情分析", "🎯 选股器"])
+tab_analyze, tab_screener, tab_portfolio = st.tabs([
+    "📊 行情分析", "🎯 选股器", "💼 组合监控",
+])
 
 # ================= 行情分析页签 =================
 with tab_analyze:
@@ -421,6 +425,162 @@ with tab_screener:
                     file_name=f"qtrader_screener_{scan_market}.csv",
                     mime="text/csv",
                 )
+
+# ================= 组合监控页签 =================
+with tab_portfolio:
+    st.subheader("💼 自选股组合监控")
+    st.caption("管理自选股，查看各标的策略信号与组合净值曲线")
+
+    # ---- 添加自选 ----
+    wc1, wc2, wc3 = st.columns([2, 2, 1])
+    with wc1:
+        wl_code = st.text_input("添加自选代码（A股6位 / 港股5位）", "",
+                                key="wl_code")
+    with wc2:
+        wl_market = st.selectbox("市场", ["A股", "港股"], key="wl_market")
+    with wc3:
+        st.write("")
+        st.write("")
+        wl_add = st.button("➕ 添加", width="stretch", key="wl_add")
+
+    if wl_add and wl_code.strip():
+        code_in = wl_code.strip().upper().replace(".", "")
+        try:
+            rt = fetcher.get_realtime_by_code(code_in)
+            name = rt.get("name", "") if rt else ""
+            ok = watchlist.add(code_in, name, wl_market)
+            st.success(f"已{'新增' if ok else '已在'}自选：{code_in} {name}")
+        except Exception as e:
+            st.error(f"添加失败（代码可能无效）：{e}")
+
+    st.divider()
+
+    # ---- 自选列表 ----
+    items = watchlist.get_all()
+    if not items:
+        st.info("自选股为空。先在左侧输入代码添加，或从选股器结果中挑选。")
+    else:
+        display_rows = []
+        for it in items:
+            try:
+                rt = fetcher.get_realtime_by_code(it["code"])
+                price = rt.get("price")
+                prev = rt.get("prev_close")
+                pct = (price / prev - 1) * 100 if price and prev else 0.0
+                display_rows.append({
+                    "代码": it["code"],
+                    "名称": rt.get("name") or it.get("name") or "",
+                    "现价": price,
+                    "涨跌幅%": round(float(pct), 2),
+                })
+            except Exception:
+                display_rows.append({"代码": it["code"],
+                                     "名称": it.get("name") or "",
+                                     "现价": None, "涨跌幅%": None})
+
+        st.dataframe(pd.DataFrame(display_rows), width="stretch", height=240)
+
+        # ---- 删除自选 ----
+        rm_col1, rm_col2 = st.columns([2, 1])
+        with rm_col1:
+            rm_code = st.selectbox("从自选中移除", [it["code"] for it in items],
+                                   key="rm_code")
+        with rm_col2:
+            st.write("")
+            st.write("")
+            if st.button("🗑 移除", width="stretch", key="rm_btn"):
+                watchlist.remove(rm_code)
+                st.rerun()
+
+    st.divider()
+
+    # ---- 策略信号面板 ----
+    if items:
+        st.subheader("📶 策略信号面板")
+        signal_rows = []
+        for it in items:
+            code_i = it["code"]
+            try:
+                df_i = load_bars_cached(code_i, beg="0")
+                if df_i.empty or len(df_i) < 70:
+                    continue
+                dfi = add_indicators(df_i)
+                sig_cells = []
+                for sname, scls in STRATEGY_REGISTRY.items():
+                    s = scls()
+                    sdf = s.generate_signal(dfi)
+                    last_sig = sdf["signal"].iloc[-1]
+                    label = "🔴买" if last_sig > 0 else ("🟢卖" if last_sig < 0 else "—")
+                    sig_cells.append(label)
+                last = dfi.iloc[-1]
+                signal_rows.append({
+                    "代码": code_i,
+                    "名称": it.get("name") or "",
+                    "收盘": round(float(last["close"]), 3),
+                    "RSI": round(float(last["RSI"]), 1),
+                    **{f"{n}": sig_cells[i] for i, n in enumerate(STRATEGY_REGISTRY.keys())},
+                })
+            except Exception:
+                continue
+        if signal_rows:
+            st.dataframe(pd.DataFrame(signal_rows), width="stretch", height=260)
+        else:
+            st.info("暂无信号数据")
+
+        # ---- 组合净值 ----
+        st.divider()
+        st.subheader("📈 组合净值（等权）")
+        p1, p2 = st.columns(2)
+        with p1:
+            combo_cash = st.number_input("组合初始资金", value=1_000_000.0,
+                                         min_value=1000.0, step=100_000.0,
+                                         key="combo_cash")
+        with p2:
+            combo_days = st.selectbox("回看区间", ["近1年", "近2年", "全部"],
+                                      index=0, key="combo_days")
+
+        beg_map = {"近1年": "20250101", "近2年": "20240101", "全部": "0"}
+        beg_s = beg_map.get(combo_days, "0")
+
+        if st.button("📊 计算组合净值", key="combo_calc", type="primary"):
+            codes_list = [it["code"] for it in items]
+            eq = portfolio_equity(codes_list, initial_cash=combo_cash, beg=beg_s)
+            if eq.empty:
+                st.warning("组合计算失败：请检查自选股代码是否有效")
+            else:
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=eq["date"], y=eq["equity"], name="组合净值",
+                    mode="lines", line=dict(width=2, color="#3498db"),
+                ))
+                # 组合最大回撤
+                cum_max = eq["equity"].cummax()
+                dd = (eq["equity"] / cum_max - 1)
+                fig2 = go.Figure()
+                fig2.add_trace(go.Scatter(
+                    x=eq["date"], y=dd * 100, name="回撤%",
+                    mode="lines", fill="tozeroy",
+                    line=dict(width=1, color="#e74c3c"),
+                ))
+                fig.update_layout(
+                    height=320, margin=dict(l=10, r=10, t=40, b=10),
+                    title="组合净值曲线", template="plotly_white",
+                    hovermode="x unified",
+                )
+                fig2.update_layout(
+                    height=200, margin=dict(l=10, r=10, t=40, b=10),
+                    title="组合回撤（%）", template="plotly_white",
+                    hovermode="x unified",
+                )
+                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig2, width="stretch")
+
+                total_ret = (eq["equity"].iloc[-1] / combo_cash - 1) * 100
+                max_dd = dd.min() * 100
+                m1, m2, m3 = st.columns(3)
+                m1.metric("组合总收益", f"{total_ret:.2f}%")
+                m2.metric("最大回撤", f"{max_dd:.2f}%")
+                m3.metric("期末净值", f"{eq['equity'].iloc[-1]:,.0f}")
 
 # 底部：市场热榜
 # ----------------------------------------------------------------------
