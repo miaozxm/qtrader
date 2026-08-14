@@ -20,6 +20,7 @@ from data.fetcher import fetcher
 from data.storage import storage
 from data.symbols import to_secid
 from indicators.ta import add_indicators
+from screener.screener import CONDITIONS, Screener
 from strategies.base import STRATEGY_REGISTRY
 
 
@@ -264,95 +265,163 @@ def make_equity_chart(equity_df: pd.DataFrame) -> go.Figure:
 
 
 # ----------------------------------------------------------------------
+# ----------------------------------------------------------------------
 # 主流程
 # ----------------------------------------------------------------------
-code = st.session_state.get("code") or code
+tab_analyze, tab_screener = st.tabs(["📊 行情分析", "🎯 选股器"])
 
-if code:
-    try:
-        with st.spinner("正在获取数据..."):
-            secid = to_secid(code)
-            # 优先读缓存，再拉网络
-            df = storage.load_bars(secid, period, fqt)
+# ================= 行情分析页签 =================
+with tab_analyze:
+    code = st.session_state.get("code") or code
+
+    if code:
+        try:
+            with st.spinner("正在获取数据..."):
+                secid = to_secid(code)
+                # 优先读缓存，再拉网络
+                df = storage.load_bars(secid, period, fqt)
+                if df.empty:
+                    df = fetcher.get_kline(secid, period, fqt)
+                    if not df.empty:
+                        storage.save_bars(secid, period, fqt, df)
+
             if df.empty:
-                df = fetcher.get_kline(secid, period, fqt)
-                if not df.empty:
-                    storage.save_bars(secid, period, fqt, df)
+                st.error(f"未获取到 {code} 的 {period} 数据，请检查代码是否正确")
+            else:
+                render_realtime(code)
+                st.divider()
 
-        if df.empty:
-            st.error(f"未获取到 {code} 的 {period} 数据，请检查代码是否正确")
+                # 指标设置
+                st.subheader("技术指标")
+                ic1, ic2, ic3, ic4 = st.columns(4)
+                with ic1:
+                    show_vol = st.checkbox("成交量", value=True)
+                with ic2:
+                    show_macd = st.checkbox("MACD", value=True)
+                with ic3:
+                    show_rsi = st.checkbox("RSI", value=True)
+                with ic4:
+                    show_kdj = st.checkbox("KDJ", value=True)
+
+                df_ind = add_indicators(df)
+
+                # 策略回测
+                st.divider()
+                st.subheader("策略回测")
+                with st.expander("回测设置", expanded=True):
+                    s1, s2, s3 = st.columns(3)
+                    with s1:
+                        strat_name = st.selectbox("策略", list(STRATEGY_REGISTRY.keys()))
+                    with s2:
+                        initial_cash = st.number_input("初始资金", value=100_000.0,
+                                                       min_value=1000.0, step=10_000.0)
+                    with s3:
+                        run_backtest = st.button("▶ 运行回测", type="primary",
+                                                 width="stretch")
+
+                if run_backtest:
+                    strat_cls = STRATEGY_REGISTRY[strat_name]
+                    strat = strat_cls()
+                    signal_df = strat.generate_signal(df_ind)
+                    engine = BacktestEngine(initial_cash=initial_cash)
+                    result = engine.run(signal_df)
+
+                    m1, m2, m3, m4 = st.columns(4)
+                    metrics = result["metrics"]
+                    fmt = format_metrics(metrics)
+                    with m1:
+                        st.metric("总收益率", fmt.get("总收益率", "N/A"),
+                                  delta=fmt.get("年化收益", ""))
+                    with m2:
+                        st.metric("最大回撤", fmt.get("最大回撤", "N/A"))
+                    with m3:
+                        st.metric("夏普比率", fmt.get("夏普比率", "N/A"))
+                    with m4:
+                        st.metric("交易次数", fmt.get("交易次数", "N/A"))
+
+                    st.plotly_chart(make_equity_chart(result["equity"]),
+                                    width="stretch")
+
+                    if not result["trades"].empty:
+                        with st.expander("📋 交易明细"):
+                            st.dataframe(result["trades"], width="stretch")
+
+                    # 将策略信号画到K线图上
+                    df_ind = signal_df
+
+                # K线主图
+                st.plotly_chart(
+                    make_candlestick(df_ind, "signal", show_vol, show_macd, show_rsi, show_kdj),
+                    width="stretch",
+                )
+        except Exception as e:
+            st.error(f"数据获取失败：{e}")
+            st.exception(e)
+
+# ================= 选股器页签 =================
+with tab_screener:
+    st.subheader("🎯 全市场选股器")
+    st.caption("基于技术指标扫描全市场，一键生成候选池（按成交额取活跃股）")
+
+    sc1, sc2, sc3, sc4 = st.columns([1, 1, 2, 1])
+    with sc1:
+        scan_market = st.selectbox("市场", ["A股", "港股"], key="scan_market")
+    with sc2:
+        scan_limit = st.selectbox("扫描数量", [50, 100, 200, 300],
+                                  index=1, key="scan_limit",
+                                  help="按成交额取前 N 名活跃股扫描")
+    with sc3:
+        scan_conds = st.multiselect(
+            "选股条件（全部命中才入选）",
+            list(CONDITIONS.keys()),
+            default=["均线多头排列", "放量上涨"],
+            key="scan_conds",
+        )
+    with sc4:
+        st.write("")
+        st.write("")
+        run_scan = st.button("🔍 开始扫描", type="primary", width="stretch",
+                             key="run_scan")
+
+    if run_scan:
+        if not scan_conds:
+            st.warning("请至少选择一个选股条件")
         else:
-            render_realtime(code)
-            st.divider()
+            screener = Screener()
+            progress_bar = st.progress(0, text="扫描中...")
 
-            # 指标设置
-            st.subheader("技术指标")
-            ic1, ic2, ic3, ic4 = st.columns(4)
-            with ic1:
-                show_vol = st.checkbox("成交量", value=True)
-            with ic2:
-                show_macd = st.checkbox("MACD", value=True)
-            with ic3:
-                show_rsi = st.checkbox("RSI", value=True)
-            with ic4:
-                show_kdj = st.checkbox("KDJ", value=True)
+            def _on_progress(done, total):
+                progress_bar.progress(done / total,
+                                      text=f"扫描中 {done}/{total} ...")
 
-            df_ind = add_indicators(df)
+            with st.spinner("正在扫描全市场，请稍候..."):
+                result = screener.scan(
+                    market=scan_market,
+                    limit=scan_limit,
+                    conditions=scan_conds,
+                    progress=_on_progress,
+                )
 
-            # 策略回测
-            st.divider()
-            st.subheader("策略回测")
-            with st.expander("回测设置", expanded=True):
-                s1, s2, s3 = st.columns(3)
-                with s1:
-                    strat_name = st.selectbox("策略", list(STRATEGY_REGISTRY.keys()))
-                with s2:
-                    initial_cash = st.number_input("初始资金", value=100_000.0,
-                                                   min_value=1000.0, step=10_000.0)
-                with s3:
-                    run_backtest = st.button("▶ 运行回测", type="primary",
-                                             use_container_width=True)
+            if result.empty:
+                st.info("本轮未发现符合全部条件的股票，可放宽条件或扩大扫描范围")
+            else:
+                st.success(f"🎉 找到 {len(result)} 只符合条件的股票")
+                st.dataframe(
+                    result.rename(columns={
+                        "code": "代码", "name": "名称", "price": "现价",
+                        "pct_chg": "涨跌幅%", "volume_ratio": "量比",
+                        "RSI": "RSI", "matched": "命中条件数",
+                        "details": "命中条件",
+                    }),
+                    width="stretch", height=420,
+                )
+                csv = result.to_csv(index=False).encode("utf-8-sig")
+                st.download_button(
+                    "⬇️ 下载候选池 CSV", csv,
+                    file_name=f"qtrader_screener_{scan_market}.csv",
+                    mime="text/csv",
+                )
 
-            if run_backtest:
-                strat_cls = STRATEGY_REGISTRY[strat_name]
-                strat = strat_cls()
-                signal_df = strat.generate_signal(df_ind)
-                engine = BacktestEngine(initial_cash=initial_cash)
-                result = engine.run(signal_df)
-
-                m1, m2, m3, m4 = st.columns(4)
-                metrics = result["metrics"]
-                fmt = format_metrics(metrics)
-                with m1:
-                    st.metric("总收益率", fmt.get("总收益率", "N/A"),
-                              delta=fmt.get("年化收益", ""))
-                with m2:
-                    st.metric("最大回撤", fmt.get("最大回撤", "N/A"))
-                with m3:
-                    st.metric("夏普比率", fmt.get("夏普比率", "N/A"))
-                with m4:
-                    st.metric("交易次数", fmt.get("交易次数", "N/A"))
-
-                st.plotly_chart(make_equity_chart(result["equity"]),
-                                width="stretch")
-
-                if not result["trades"].empty:
-                    with st.expander("📋 交易明细"):
-                        st.dataframe(result["trades"], width="stretch")
-
-                # 将策略信号画到K线图上
-                df_ind = signal_df
-
-            # K线主图
-            st.plotly_chart(
-                make_candlestick(df_ind, "signal", show_vol, show_macd, show_rsi, show_kdj),
-                width="stretch",
-            )
-    except Exception as e:
-        st.error(f"数据获取失败：{e}")
-        st.exception(e)
-
-# ----------------------------------------------------------------------
 # 底部：市场热榜
 # ----------------------------------------------------------------------
 st.divider()
