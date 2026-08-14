@@ -29,6 +29,48 @@ from strategies.base import STRATEGY_REGISTRY
 
 
 # ----------------------------------------------------------------------
+# 带缓存的网络数据访问（避免点击按钮 rerun 时触发重复请求）
+# ----------------------------------------------------------------------
+@st.cache_data(ttl=30, show_spinner=False)
+def _cached_realtime(code: str) -> dict:
+    """实时行情（30秒缓存）"""
+    try:
+        return fetcher.get_realtime_by_code(code)
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_stock_list(market: str, limit: int, sort_field: str) -> pd.DataFrame:
+    """榜单（5分钟缓存）"""
+    return fetcher.get_stock_list(market, limit=limit, sort_field=sort_field)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_kline(code: str, period: str, fqt: str) -> pd.DataFrame:
+    """K线（10分钟缓存，先查SQLite再拉网络）"""
+    secid = to_secid(code)
+    df = storage.load_bars(secid, period, fqt)
+    if df.empty:
+        df = fetcher.get_kline(secid, period, fqt)
+        if not df.empty:
+            storage.save_bars(secid, period, fqt, df)
+    return df
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _cached_search(kw: str) -> list:
+    """模糊搜索（1小时缓存）"""
+    return fetcher.search(kw, limit=8)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_portfolio_equity(codes: tuple, cash: float, beg: str) -> pd.DataFrame:
+    """组合净值（10分钟缓存）"""
+    return portfolio_equity(list(codes), initial_cash=cash, beg=beg)
+
+
+# ----------------------------------------------------------------------
 # ----------------------------------------------------------------------
 # 页面基础：品牌 + 全局样式
 # ----------------------------------------------------------------------
@@ -216,7 +258,7 @@ with st.sidebar:
 # ----------------------------------------------------------------------
 def render_realtime(code: str):
     try:
-        rt = fetcher.get_realtime_by_code(code)
+        rt = _cached_realtime(code)
     except Exception as e:
         st.warning(f"实时行情获取失败：{e}")
         return
@@ -500,7 +542,7 @@ with tab_analyze:
             st.session_state["code"] = kw
             code = kw
         else:
-            st.session_state["search_results"] = fetcher.search(kw, limit=8)
+            st.session_state["search_results"] = _cached_search(kw)
 
     if st.session_state.get("search_results"):
         results = st.session_state["search_results"]
@@ -515,13 +557,7 @@ with tab_analyze:
     if code:
         try:
             with st.spinner("正在获取数据..."):
-                secid = to_secid(code)
-                # 优先读缓存，再拉网络
-                df = storage.load_bars(secid, period, fqt)
-                if df.empty:
-                    df = fetcher.get_kline(secid, period, fqt)
-                    if not df.empty:
-                        storage.save_bars(secid, period, fqt, df)
+                df = _cached_kline(code, period, fqt)
 
             if df.empty:
                 st.error(f"未获取到 {code} 的 {period} 数据，请检查代码是否正确")
@@ -601,8 +637,7 @@ with tab_analyze:
     st.caption(f"🔥 {market} 热榜 · 点击行可查看该标的")
     with st.spinner("加载榜单..."):
         try:
-            rank_df = fetcher.get_stock_list(market, limit=rank_n,
-                                             sort_field=rank_field)
+            rank_df = _cached_stock_list(market, rank_n, rank_field)
             if not rank_df.empty:
                 rank_view = rank_df.rename(columns={
                     "code": "代码", "name": "名称", "price": "现价",
@@ -708,7 +743,7 @@ with tab_portfolio:
     if wl_add and wl_code.strip():
         code_in = wl_code.strip().upper().replace(".", "")
         try:
-            rt = fetcher.get_realtime_by_code(code_in)
+            rt = _cached_realtime(code_in)
             name = rt.get("name", "") if rt else ""
             ok = watchlist.add(code_in, name, wl_market)
             st.success(f"已{'新增' if ok else '已在'}自选：{code_in} {name}")
@@ -725,7 +760,7 @@ with tab_portfolio:
         display_rows = []
         for it in items:
             try:
-                rt = fetcher.get_realtime_by_code(it["code"])
+                rt = _cached_realtime(it["code"])
                 price = rt.get("price")
                 prev = rt.get("prev_close")
                 pct = (price / prev - 1) * 100 if price and prev else 0.0
@@ -806,7 +841,7 @@ with tab_portfolio:
 
         if st.button("📊 计算组合净值", key="combo_calc", type="primary"):
             codes_list = [it["code"] for it in items]
-            eq = portfolio_equity(codes_list, initial_cash=combo_cash, beg=beg_s)
+            eq = _cached_portfolio_equity(tuple(codes_list), combo_cash, beg_s)
             if eq.empty:
                 st.warning("组合计算失败：请检查自选股代码是否有效")
             else:
@@ -924,7 +959,7 @@ with tab_paper:
     market_val = 0.0
     for pos in positions:
         try:
-            rt = fetcher.get_realtime_by_code(pos["code"])
+            rt = _cached_realtime(pos["code"])
             price = rt.get("price")
             if price:
                 market_val += price * pos["qty"]
@@ -959,7 +994,7 @@ with tab_paper:
         code_t = trade_code.strip().upper().replace(".", "")
         price_t = trade_price if trade_price > 0 else None
         try:
-            rt = fetcher.get_realtime_by_code(code_t)
+            rt = _cached_realtime(code_t)
             name_t = rt.get("name", "") if rt else ""
             if price_t is None:
                 price_t = rt.get("price") if rt else None
@@ -985,7 +1020,7 @@ with tab_paper:
         pos_rows = []
         for pos in positions:
             try:
-                rt = fetcher.get_realtime_by_code(pos["code"])
+                rt = _cached_realtime(pos["code"])
                 price = rt.get("price") or pos["avg_cost"]
                 value = price * pos["qty"]
                 pnl = (price - pos["avg_cost"]) * pos["qty"]
