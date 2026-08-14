@@ -493,19 +493,22 @@ with tab_analyze:
 
     code = st.session_state.get("code") or code
 
-    if (search_go and search_input.strip()) or (
-        search_input.strip().isdigit() and search_input.strip() != code
-    ):
+    if search_go and search_input.strip():
         kw = search_input.strip()
-        results = fetcher.search(kw, limit=8)
-        if results:
-            labels = [f"{r['code']} {r['name']} ({r['market']})" for r in results]
-            pick = st.selectbox("选择结果：", labels, key="search_pick")
-            picked = results[labels.index(pick)]
-            code = picked["code"]
-            st.session_state["code"] = code
+        # 纯数字直接查询（无需选）
+        if kw.isdigit():
+            st.session_state["code"] = kw
+            code = kw
         else:
-            st.warning(f"未找到与「{kw}」匹配的标的")
+            st.session_state["search_results"] = fetcher.search(kw, limit=8)
+
+    if st.session_state.get("search_results"):
+        results = st.session_state["search_results"]
+        labels = [f"{r['code']} {r['name']} ({r['market']})" for r in results]
+        pick = st.selectbox("选择结果：", labels, key="search_pick")
+        picked_code = results[labels.index(pick)]["code"]
+        st.session_state["code"] = picked_code
+        code = picked_code
 
     st.divider()
 
