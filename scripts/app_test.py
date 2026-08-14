@@ -19,8 +19,8 @@ def main():
         sys.exit(1)
 
     print("App 脚本渲染成功（无异常）")
-    print(f"  标题: {at.title[0].value}")
-    print(f"  副标题: {at.caption[0].value}")
+    print(f"  markdown 块数: {len(at.markdown)}")
+    print(f"  tabs 数量: {len(at.tabs)}")
     print(f"  selectbox 数量: {len(at.selectbox)}")
     print(f"  text_input 数量: {len(at.text_input)}")
     print(f"  button 数量: {len(at.button)}")

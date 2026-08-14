@@ -29,19 +29,161 @@ from strategies.base import STRATEGY_REGISTRY
 
 
 # ----------------------------------------------------------------------
-# 页面基础
+# ----------------------------------------------------------------------
+# 页面基础：品牌 + 全局样式
 # ----------------------------------------------------------------------
 st.set_page_config(page_title="QTrader 量化平台", layout="wide",
                    page_icon="📈")
-st.title("📈 QTrader 个人量化交易平台")
-st.caption("数据源：东方财富（免费） | 支持 A股 / 港股 | 本地 SQLite 缓存")
+
+# ---- 全局设计语言（CSS） ----
+st.markdown("""
+<style>
+    :root {
+        --brand: #2563eb;
+        --brand-dark: #1d4ed8;
+        --ink: #0f172a;
+        --muted: #64748b;
+        --line: #e2e8f0;
+        --bg: #f8fafc;
+        --card: #ffffff;
+        --up: #dc2626;
+        --down: #16a34a;
+    }
+    .stApp { background: var(--bg); }
+    [data-testid="stSidebar"] {
+        background: #ffffff;
+        border-right: 1px solid var(--line);
+    }
+    [data-testid="stSidebar"] [data-testid="stSidebarContent"] { padding-top: 1.2rem; }
+    .block-container { padding-top: 1.6rem; padding-bottom: 3rem; }
+
+    /* 品牌栏 */
+    .qtrader-brand {
+        display: flex; align-items: center; gap: 12px;
+        margin-bottom: 4px;
+    }
+    .qtrader-brand .logo {
+        font-size: 1.6rem; line-height: 1;
+    }
+    .qtrader-brand .name {
+        font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em;
+        color: var(--ink);
+    }
+    .qtrader-brand .name em {
+        font-style: normal; color: var(--brand);
+    }
+    .qtrader-sub {
+        color: var(--muted); font-size: 0.85rem;
+        margin-bottom: 0.8rem;
+    }
+    .qtrader-status {
+        display: inline-flex; align-items: center; gap: 6px;
+        background: #ecfdf5; color: #059669; font-size: 0.75rem;
+        padding: 2px 10px; border-radius: 999px; margin-left: 8px;
+    }
+    .qtrader-status::before {
+        content: ""; width: 6px; height: 6px; border-radius: 50%;
+        background: #10b981; display: inline-block;
+    }
+
+    /* 功能卡片 */
+    .qtrader-card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 1.1rem 1.2rem;
+        margin-bottom: 0.8rem;
+        box-shadow: 0 1px 2px rgba(15,23,42,0.04);
+        transition: box-shadow .15s ease, transform .15s ease;
+    }
+    .qtrader-card:hover {
+        box-shadow: 0 8px 24px rgba(15,23,42,0.08);
+        transform: translateY(-1px);
+    }
+    .qtrader-card .card-ico { font-size: 1.5rem; }
+    .qtrader-card .card-title {
+        font-size: 1.02rem; font-weight: 650; color: var(--ink);
+        margin: 6px 0 4px;
+    }
+    .qtrader-card .card-desc {
+        color: var(--muted); font-size: 0.82rem; line-height: 1.5;
+    }
+
+    /* 按钮 */
+    .stButton > button {
+        border-radius: 10px;
+        font-weight: 600;
+        border: 1px solid var(--line);
+        transition: all .15s ease;
+    }
+    .stButton > button[kind="primary"] {
+        background: var(--brand);
+        border: none;
+        box-shadow: 0 2px 8px rgba(37,99,235,0.25);
+    }
+    .stButton > button[kind="primary"]:hover {
+        background: var(--brand-dark);
+        box-shadow: 0 4px 14px rgba(37,99,235,0.35);
+    }
+
+    /* 指标卡与标题收敛 */
+    [data-testid="stMetric"] {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 0.8rem 1rem;
+    }
+    h1, h2, h3 { letter-spacing: -0.02em; color: var(--ink); }
+    h3 { font-size: 1.05rem; font-weight: 650; }
+
+    /* tabs 收敛 */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 6px; border-bottom: 1px solid var(--line);
+        margin-bottom: 1.1rem;
+    }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 9px 9px 0 0;
+        padding: 6px 14px;
+        font-size: 0.92rem;
+    }
+    .stTabs [aria-selected="true"] {
+        background: var(--brand) !important;
+        color: #fff !important;
+    }
+    .stTabs [aria-selected="true"] [data-testid="stMarkdownContainer"] p {
+        color: #fff !important;
+    }
+    .stTabs [data-baseweb="tab"]:hover { background: #eff6ff; }
+
+    .stExpander {
+        border: 1px solid var(--line) !important;
+        border-radius: 12px !important;
+        background: var(--card);
+    }
+    hr { border-color: var(--line) !important; }
+    [data-testid="stDataFrame"] { border-radius: 12px; overflow: hidden; }
+</style>
+""", unsafe_allow_html=True)
+
+# ---- 品牌栏（紧凑） ----
+st.markdown(
+    '<div class="qtrader-brand">'
+    '<span class="logo">📈</span>'
+    '<span class="name">QTrader<em>·量化</em></span>'
+    '<span class="qtrader-status">数据在线</span>'
+    '</div>'
+    '<div class="qtrader-sub">A股 / 港股 · 东方财富 + 腾讯数据源 · 本地缓存 · 个人量化研究平台</div>',
+    unsafe_allow_html=True,
+)
 
 
-# ----------------------------------------------------------------------
 # 侧边栏：行情设置
 # ----------------------------------------------------------------------
 with st.sidebar:
-    st.header("行情设置")
+    st.markdown(
+        '<div class="qtrader-sub" style="margin-bottom:4px;">🔧 行情设置</div>',
+        unsafe_allow_html=True,
+    )
     market = st.selectbox("市场", ["A股", "港股"])
 
     col1, col2 = st.columns(2)
@@ -272,9 +414,88 @@ def make_equity_chart(equity_df: pd.DataFrame) -> go.Figure:
 # ----------------------------------------------------------------------
 # 主流程
 # ----------------------------------------------------------------------
-tab_analyze, tab_screener, tab_portfolio, tab_lab, tab_paper = st.tabs([
-    "📊 行情分析", "🎯 选股器", "💼 组合监控", "🧪 策略实验室", "🖥 模拟交易",
+tab_home, tab_analyze, tab_screener, tab_portfolio, tab_lab, tab_paper = st.tabs([
+    "🏠 主页", "📊 行情", "🎯 选股", "💼 组合", "🧪 实验室", "🖥 模拟",
 ])
+
+# ================= 主页页签 =================
+with tab_home:
+    # Hero
+    st.markdown(
+        '<div style="padding:1.6rem 0 0.4rem;">'
+        '<h2 style="font-size:2rem;font-weight:750;letter-spacing:-0.03em;'
+        'color:var(--ink);margin-bottom:0.4rem;">构建你自己的量化交易平台</h2>'
+        '<p style="color:var(--muted);font-size:1.02rem;max-width:640px;line-height:1.6;">'
+        '覆盖 A股 / 港股行情、技术指标、策略回测与参数寻优、模拟交易，'
+        '全部数据来自免费公开接口，开箱即用。</p>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    # 功能卡片
+    colA, colB, colC = st.columns(3)
+    with colA:
+        st.markdown(
+            '<div class="qtrader-card">'
+            '<div class="card-ico">📊</div>'
+            '<div class="card-title">行情分析</div>'
+            '<div class="card-desc">A股/港股 K线、实时行情、均线/MACD/RSI/KDJ/BOLL，'
+            '单标的策略回测与买卖点标注。</div>'
+            '</div>', unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<div class="qtrader-card">'
+            '<div class="card-ico">💼</div>'
+            '<div class="card-title">组合监控</div>'
+            '<div class="card-desc">自选股管理、多标的等权净值与回撤、'
+            '多策略实时信号面板。</div>'
+            '</div>', unsafe_allow_html=True,
+        )
+    with colB:
+        st.markdown(
+            '<div class="qtrader-card">'
+            '<div class="card-ico">🎯</div>'
+            '<div class="card-title">全市场选股</div>'
+            '<div class="card-desc">按均线多头/MACD金叉/RSI超卖/布林突破/放量上涨'
+            '多条件扫描，一键生成候选池。</div>'
+            '</div>', unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<div class="qtrader-card">'
+            '<div class="card-ico">🧪</div>'
+            '<div class="card-title">策略实验室</div>'
+            '<div class="card-desc">网格参数寻优，找出历史表现最优的策略参数组合，'
+            '结果可导出。</div>'
+            '</div>', unsafe_allow_html=True,
+        )
+    with colC:
+        st.markdown(
+            '<div class="qtrader-card">'
+            '<div class="card-ico">🖥</div>'
+            '<div class="card-title">模拟交易</div>'
+            '<div class="card-desc">虚拟资金纸面交易，记录持仓与盈亏，'
+            '练习策略不承担真实风险。</div>'
+            '</div>', unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<div class="qtrader-card">'
+            '<div class="card-ico">🚀</div>'
+            '<div class="card-title">快速开始</div>'
+            '<div class="card-desc">在左侧输入代码查询行情；'
+            '切到「选股」扫描全市场；「实验室」做参数寻优。</div>'
+            '</div>', unsafe_allow_html=True,
+        )
+
+    # 数据源说明
+    st.divider()
+    st.markdown(
+        '<div style="display:flex;gap:14px;flex-wrap:wrap;color:var(--muted);font-size:0.85rem;">'
+        '<span>🔹 数据源：东方财富 + 腾讯（自动切换）</span>'
+        '<span>🔹 覆盖：A股 / 港股</span>'
+        '<span>🔹 缓存：本地 SQLite</span>'
+        '<span>🔹 技术栈：Streamlit + Plotly + pandas</span>'
+        '</div>', unsafe_allow_html=True,
+    )
 
 # ================= 行情分析页签 =================
 with tab_analyze:
@@ -366,7 +587,6 @@ with tab_analyze:
 
 # ================= 选股器页签 =================
 with tab_screener:
-    st.subheader("🎯 全市场选股器")
     st.caption("基于技术指标扫描全市场，一键生成候选池（按成交额取活跃股）")
 
     sc1, sc2, sc3, sc4 = st.columns([1, 1, 2, 1])
@@ -430,7 +650,6 @@ with tab_screener:
 
 # ================= 组合监控页签 =================
 with tab_portfolio:
-    st.subheader("💼 自选股组合监控")
     st.caption("管理自选股，查看各标的策略信号与组合净值曲线")
 
     # ---- 添加自选 ----
@@ -586,7 +805,6 @@ with tab_portfolio:
 
 # ================= 策略实验室页签 =================
 with tab_lab:
-    st.subheader("🧪 策略参数寻优（Grid Search）")
     st.caption("对内置策略做参数网格搜索，找出历史表现最优的参数组合")
 
     l1, l2, l3, l4 = st.columns([1, 1, 1, 1])
@@ -651,7 +869,6 @@ with tab_lab:
 
 # ================= 模拟交易页签 =================
 with tab_paper:
-    st.subheader("🖥 模拟交易账户")
     st.caption("纸面交易：用虚拟资金练习策略，不涉及真实资金")
 
     cash = paper_account.get_cash()
